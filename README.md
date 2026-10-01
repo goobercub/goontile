@@ -1,11 +1,21 @@
+
+
 # GoonTiles
 
-A local multi-monitor **video wall** with a built-in **hypno effects** toolkit. It
-tiles local videos across every screen, optimizing how many play at once based on
-their aspect ratios, and layers on optional Poppers Training, music-synced
-visuals, hypnosis patterns, text commands, and a bate goal.
+https://github.com/user-attachments/assets/2cd9b8e3-b606-496e-a9c6-7419d7bc5a82
 
-Built with Electron (no internet required at runtime — everything is local).
+Seamless edge-to-edge video wall engine.
+Everything is local, no internet required. 
+
+Built to maximize screen usage, video playback and controls.
+Point it at folders of content to pull from. 
+
+## Early Roadmap
+- more poppers images
+- poppers guide uses better graphics
+- pull media from [Stash](https://github.com/stashapp/stash) based on the studio/performer/tags schema.
+- more work into comprehensive hypnosis/narration visuals and functionality 
+- customizable shortcuts
 
 ---
 
