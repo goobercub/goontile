@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GoonTiles</title>
+<style>
+  /*
+    Video Tiler's control surface.
+
+    This panel is read in a dark room in the minutes before a session, so it is
+    lit the way instruments meant for dark rooms are lit: amber on cool slate.
+    Amber is the one accent, and it is never decorative — it means a thing is
+    on, armed, or focused. The sections butt together into a single rack, each
+    one closed until you open it, and each one's icon doubles as its tally lamp
+    so a glance down the rack tells you what the next session will include.
+  */
+  :root {
+    color-scheme: dark;
+
+    --ground:    #0f1420;  /* the rack the modules are mounted in */
+    --panel:     #161d2c;  /* a module face */
+    --panel-lit: #1e2739;  /* hover */
+    --well:      #0b0f19;  /* recessed: inputs, lists, readouts */
+    --seam:      #26314a;  /* the hairline between units */
+    --seam-soft: #1d2537;
+    --ink:       #e9ecf4;
+    --ink-dim:   #8794ac;
+    --ink-faint: #7886a1;
+    --lamp:      #ffb020;
+    --lamp-hi:   #ffc65c;
+    --lamp-wash: rgba(255, 176, 32, 0.12);
+    --alert:     #ff6f61;
+
+    /* Bahnschrift is Windows' DIN — the lettering of equipment panels — and it
+       carries every label, value and key. Segoe stays for explanatory text,
+       which reads better as prose at 11-12px. */
+    --font-panel: Bahnschrift, 'DIN Next', 'Segoe UI', system-ui, sans-serif;
+    --font-text: 'Segoe UI', system-ui, sans-serif;
+
+    --pad: 26px;
+    --indent: 51px;   /* lines controls up with the module name, past its icon */
+    --toc-h: 39px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* A closed section stays closed: the condensed view sets display on .controls,
+     which would otherwise win against the hidden attribute. */
+  [hidden] { display: none !important; }
+
+  body {
+    position: relative;
+    isolation: isolate;
+    background:
+      radial-gradient(circle at 12% 8%, rgba(255, 176, 32, 0.12), transparent 32%),
+      radial-gradient(circle at 88% 28%, rgba(80, 103, 158, 0.18), transparent 38%),
+      radial-gradient(circle at 45% 90%, rgba(100, 52, 116, 0.13), transparent 42%),
+      linear-gradient(145deg, #0a0e17 0%, #151d2d 48%, #0b101b 100%);
+    background-attachment: fixed;
+    color: var(--ink);
+    font: 14px/1.45 var(--font-text);
+    user-select: none;
+    padding-bottom: 4px;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0.13;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.72'/%3E%3C/svg%3E");
+  }
+
+  .sprite { display: none; }
+
+  .icon {
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  ::selection { background: var(--lamp); color: #171004; }
+
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: var(--ground); }
+  ::-webkit-scrollbar-thumb { background: #29344c; border: 3px solid var(--ground); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #38466a; }
+
+  :focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; border-radius: 2px; }
+
+  /* ── Masthead ────────────────────────────────────────────────────────── */
+
+  .masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px var(--pad) 14px;
+  }
+  h1 {
+    font-family: var(--font-panel);
+    font-size: 20px;
+    font-weight: 600;
+    font-stretch: 87.5%;
+    letter-spacing: 0.02em;
+  }
+  .mast-right { display: flex; align-items: center; gap: 14px; }
+  .displays {
+    font-family: var(--font-panel);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-faint);
+  }
+  .density {
+    display: flex;
+    background: var(--well);
+    border: 1px solid var(--seam);
+    border-radius: 5px;
+    padding: 2px;
+  }
+  .density-btn {
+    font-family: var(--font-panel);
+    font-size: 11.5px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--ink-faint);
+    cursor: pointer;
+  }
+  .density-btn:hover { color: var(--ink); }
+  .density-btn.on { background: var(--panel-lit); color: var(--ink); }
+
+  /* ── Jump list ───────────────────────────────────────────────────────── */
+
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 6px var(--pad);
+    background: rgba(15, 20, 32, 0.86);
+    backdrop-filter: blur(12px) saturate(120%);
+    border-top: 1px solid var(--seam);
+    border-bottom: 1px solid var(--seam);
+  }
+  .toc-btn {
+    display: flex;
+    padding: 6px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--ink-faint);
+    cursor: pointer;
+  }
+  .toc-btn:hover { background: var(--panel-lit); color: var(--ink); }
+  .toc-btn.live { color: var(--lamp); }
+  .toc-btn.live .icon { stroke-width: 2; }
+  .toc-btn.here { background: var(--panel-lit); color: var(--ink); box-shadow: inset 0 0 0 1px var(--seam); }
+  .toc-btn.here.live { color: var(--lamp); }
+  .toc-here {
+    margin-left: auto;
+    padding-left: 10px;
+    font-family: var(--font-panel);
+    font-size: 12px;
+    color: var(--ink-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── The rack ────────────────────────────────────────────────────────── */
+
+  .module {
+    background: rgba(22, 29, 44, 0.88);
+    border-top: 1px solid var(--seam);
+    scroll-margin-top: var(--toc-h);
+  }
+  .module:first-of-type { border-top: 0; }
+  .module:last-of-type { border-bottom: 1px solid var(--seam); }
+  .module.open { background: rgba(24, 32, 47, 0.94); }
+
+  .rail { font-size: inherit; font-weight: inherit; }
+  .rail-btn {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    width: 100%;
+    padding: 12px var(--pad);
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-family: var(--font-panel);
+    font-size: 14.5px;
+    font-weight: 600;
+    font-stretch: 87.5%;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+  }
+  .rail-btn:hover { background: rgba(255, 255, 255, 0.022); }
+  .mod-icon { width: 17px; height: 17px; color: var(--ink-faint); transition: color 0.18s ease; }
+  .module.live .mod-icon {
+    color: var(--lamp);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 6px rgba(255, 176, 32, 0.6));
+  }
+  .mod-name { flex: 0 0 auto; }
+  .summary {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-text);
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--ink-faint);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .module.open .summary { visibility: hidden; }
+  .chev { display: flex; flex: 0 0 auto; color: var(--ink-faint); }
+  .chev-open { display: none; }
+  .module.open .chev-shut { display: none; }
+  .module.open .chev-open { display: block; }
+
+  .controls { padding: 0 var(--pad) 16px var(--indent); }
+
+  /* ── Subsections ─────────────────────────────────────────────────────── */
+
+  .group + .group { margin-top: 4px; }
+  .group h3 {
+    font-family: var(--font-panel);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ink-faint);
+    padding: 12px 0 6px;
+    border-bottom: 1px solid var(--seam);
+  }
+
+  /* ── Rows ────────────────────────────────────────────────────────────── */
+
+  .opt {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 9px 0;
+  }
+  .opt:not(:last-child) { border-bottom: 1px solid var(--seam-soft); }
+  .opt-label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .opt-label > .icon { color: var(--ink-faint); }
+  .opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .opt-name { font-family: var(--font-panel); font-size: 13.5px; font-weight: 500; }
+  .hint {
+    font-family: var(--font-text);
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--ink-dim);
+    max-width: 48ch;
+  }
+  /* Values line up in one column down the panel, the way a readout does. */
+  .ctl {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .unit, .sep { font-size: 12px; color: var(--ink-dim); }
+  .opt.stack { flex-direction: column; align-items: stretch; gap: 8px; }
+  .opt.stack .ctl { flex-direction: column; align-items: stretch; gap: 6px; }
+  .sub { font-size: 12px; line-height: 1.5; color: var(--ink-dim); max-width: 62ch; padding: 10px 0 4px; }
+  .note { font-size: 11.5px; line-height: 1.45; color: var(--ink-dim); max-width: 54ch; padding: 11px 0 2px; }
+  .empty { color: var(--ink-faint); font-style: italic; padding: 8px 0; }
+
+  /* Best-fit-only rows are hidden while a fixed grid is in charge, and vice versa. */
+  body.grid-mode .autoOpt, body.center-mode .autoOpt { display: none; }
+  body:not(.grid-mode) .gridOpt { display: none; }
+  body:not(.center-mode) .centerOpt { display: none; }
+
+  /* Only one of the two drift-timing rows applies at a time. */
+  body.beat-drift .freeOpt { display: none; }
+  body:not(.beat-drift) .beatOpt { display: none; }
+
+  /* ── Fields ──────────────────────────────────────────────────────────── */
+
+  input[type="number"],
+  input[type="text"],
+  select {
+    font-family: var(--font-panel);
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    background: var(--well);
+    border: 1px solid var(--seam);
+    border-radius: 4px;
+    padding: 7px 9px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
+  input[type="number"] { width: 74px; text-align: right; }
+  input[type="number"]:hover, input[type="text"]:hover, select:hover { border-color: #33415f; }
+  select {
+    appearance: none;
+    padding-right: 28px;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238794ac' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+  }
+  select:disabled, input:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* The name box for "Save as…" — Electron has no window.prompt(). */
+  #nameDialog {
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--seam);
+    border-radius: 6px;
+    padding: 18px 20px 16px;
+    min-width: 340px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  }
+  #nameDialog::backdrop { background: rgba(6, 9, 16, 0.6); }
+  #nameDialog label {
+    display: block;
+    font-family: var(--font-panel);
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-bottom: 8px;
+  }
+  #nameDialog input[type="text"] { width: 100%; margin-bottom: 14px; }
+  #nameDialog .dialog-row { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* Faders */
+  .range-row { display: flex; align-items: center; gap: 12px; }
+  .range-row input[type="range"] { flex: 1; }
+  .range-label { width: 30px; font-size: 11.5px; color: var(--ink-dim); }
+  .range-val {
+    min-width: 52px;
+    text-align: right;
+    font-family: var(--font-panel);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  input[type="range"] {
+    appearance: none;
+    width: 128px;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 13px;
+    height: 20px;
+    margin-top: -8px;
+    border-radius: 3px;
+    border: 1px solid #05070c;
+    background: linear-gradient(180deg, #7d8ba6 0%, #5b6884 48%, #495471 50%, #2f374b 100%);
+  }
+  input[type="range"]:hover::-webkit-slider-thumb { background: linear-gradient(180deg, #94a2bd 0%, #6d7b98 48%, #566280 50%, #39425a 100%); }
+  input[type="range"]:active::-webkit-slider-thumb,
+  input[type="range"]:focus-visible::-webkit-slider-thumb { background: linear-gradient(180deg, var(--lamp-hi), #d68f13); border-color: #7a5209; }
+
+  /* Rocker switch */
+  .switch { position: relative; flex: 0 0 auto; width: 46px; height: 24px; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .slider {
+    position: absolute;
+    inset: 0;
+    background: var(--well);
+    border: 1px solid var(--seam);
+    border-radius: 4px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+    transition: background 0.16s ease, border-color 0.16s ease;
+    cursor: pointer;
+  }
+  .slider::before {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 2px;
+    top: 2px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #6c7a95 0%, #4d5871 100%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    transition: transform 0.16s ease, background 0.16s ease;
+  }
+  .switch input:checked + .slider { background: var(--lamp-wash); border-color: #6f5620; }
+  .switch input:checked + .slider::before {
+    transform: translateX(22px);
+    background: linear-gradient(180deg, var(--lamp-hi), #e39a14);
+    box-shadow: 0 0 10px rgba(255, 176, 32, 0.5);
+  }
+  .switch input:focus-visible + .slider { outline: 2px solid var(--lamp); outline-offset: 2px; }
+  .switch input:disabled + .slider { opacity: 0.35; cursor: not-allowed; }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+
+  button {
+    font-family: var(--font-panel);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    background: var(--panel-lit);
+    border: 1px solid var(--seam);
+    border-radius: 4px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease;
+  }
+  button:hover { background: #263148; border-color: #374564; }
+  button:active { background: #1a2233; }
+  .btn-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+    color: var(--ink-dim);
+  }
+  .btn-add:hover { color: var(--ink); }
+  .folder-actions { display: flex; gap: 8px; }
+  .folder-actions .btn-add { flex: 1; }
+  .folder-actions .btn-clear { color: var(--ink-faint); }
+  .folder-actions .btn-clear:hover,
+  .folder-actions .btn-clear.confirming { color: var(--alert); border-color: var(--alert); }
+
+  .preset-row { display: flex; gap: 6px; padding-bottom: 8px; }
+  .preset-row select { flex: 1; min-width: 0; }
+
+  /* ── The folder list ─────────────────────────────────────────────────── */
+
+  #folderList, #musicList { list-style: none; }
+  #folderList { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
+  .folder-row {
+    background: var(--well);
+    border: 1px solid var(--seam-soft);
+    border-radius: 4px;
+    padding: 9px 10px 10px;
+  }
+  .folder-head { display: flex; align-items: baseline; gap: 9px; }
+  .folder-name {
+    font-family: var(--font-panel);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .folder-path {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--ink-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .folder-head .remove {
+    flex: 0 0 auto;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+  .folder-head .remove:hover { background: none; color: var(--alert); }
+  .folder-roles { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--ink-faint);
+    background: transparent;
+    border: 1px solid var(--seam);
+    border-radius: 999px;
+  }
+  .chip .icon { width: 13px; height: 13px; }
+  .chip:hover { background: var(--panel-lit); color: var(--ink); }
+  .chip.on {
+    color: var(--lamp);
+    background: var(--lamp-wash);
+    border-color: #6f5620;
+  }
+  .chip.on:hover { color: var(--lamp-hi); background: rgba(255, 176, 32, 0.18); }
+  /* A locked chip still shows its state; it just cannot be the one you turn off. */
+  .chip:disabled { cursor: default; opacity: 0.45; }
+  .chip.on:disabled { opacity: 0.8; }
+  .chip:disabled:hover { color: var(--ink-faint); background: transparent; }
+  .chip.on:disabled:hover { color: var(--lamp); background: var(--lamp-wash); }
+  .chip-sep { width: 1px; align-self: stretch; margin: 0 3px; background: var(--seam); }
+
+  #musicList { display: flex; flex-direction: column; gap: 5px; }
+  #musicList li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--well);
+    border: 1px solid var(--seam-soft);
+    border-radius: 3px;
+    padding: 7px 9px;
+    font-size: 12.5px;
+  }
+  #musicList .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #musicList .remove { flex: 0 0 auto; color: var(--ink-faint); cursor: pointer; font-weight: 700; }
+  #musicList .remove:hover { color: var(--alert); }
+
+  /* ── Session history ─────────────────────────────────────────────────── */
+
+  #historyStats { display: flex; flex-wrap: wrap; gap: 6px 26px; padding: 10px 0 12px; }
+  .stat { display: flex; flex-direction: column; }
+  .stat-value {
+    font-family: var(--font-panel);
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .stat-label { font-size: 11px; color: var(--ink-faint); }
+  #historyGraph {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 108px;
+    padding: 8px;
+    background: var(--well);
+    border: 1px solid var(--seam-soft);
+    border-radius: 3px;
+    overflow-x: auto;
+  }
+  #historyGraph .bar { flex: 1 0 8px; min-width: 8px; background: #3f4f70; border-radius: 1px 1px 0 0; }
+  #historyGraph .bar.best { background: var(--lamp); box-shadow: 0 0 10px rgba(255, 176, 32, 0.45); }
+  #historyGraph .empty { align-self: center; }
+  .history-list {
+    max-height: 220px;
+    overflow-y: auto;
+    background: var(--well);
+    border: 1px solid var(--seam-soft);
+    border-radius: 3px;
+  }
+  .history-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 7px 9px;
+    border-top: 1px solid var(--seam-soft);
+    font-size: 12px;
+  }
+  .history-row:first-child { border-top: 0; }
+  .history-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+  .history-meta { flex: 0 0 auto; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .history-empty { padding: 10px; color: var(--ink-faint); font-size: 12px; }
+
+  /* ── Keycaps ─────────────────────────────────────────────────────────── */
+
+  .keys {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    align-items: center;
+    gap: 6px 14px;
+    padding-top: 10px;
+    font-size: 12.5px;
+  }
+  .combo { display: flex; align-items: center; gap: 5px; }
+  .combo i { font-style: normal; color: var(--ink-faint); font-size: 11px; }
+  .keys kbd {
+    min-width: 24px;
+    text-align: center;
+    font-family: var(--font-panel);
+    font-size: 11px;
+    color: var(--ink-dim);
+    background: linear-gradient(180deg, #212a3d, #171e2d);
+    border: 1px solid #2c3752;
+    border-bottom: 2px solid #090d15;
+    border-radius: 3px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .keys .desc { color: var(--ink-dim); }
+
+  /* ── Condensed ───────────────────────────────────────────────────────── */
+  /*
+    Same rows, no explanations, flowed into as many columns as fit. Anything
+    that is a block rather than a labelled control keeps the full width.
+  */
+  body.condensed .hint { display: none; }
+  body.condensed .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+    column-gap: 24px;
+    align-items: start;
+  }
+  body.condensed .group { display: contents; }
+  body.condensed .group h3,
+  body.condensed .opt.stack,
+  body.condensed .sub,
+  body.condensed .note,
+  body.condensed .keys,
+  body.condensed .preset-row,
+  body.condensed .btn-add,
+  body.condensed ul,
+  body.condensed #historyStats,
+  body.condensed #historyGraph,
+  body.condensed .history-list { grid-column: 1 / -1; }
+  body.condensed .opt { padding: 7px 0; }
+  body.condensed .opt-name { font-size: 13px; }
+
+  /* ── Start ───────────────────────────────────────────────────────────── */
+
+  .footer {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 14px var(--pad) 16px;
+    background: rgba(15, 20, 32, 0.9);
+    backdrop-filter: blur(12px) saturate(120%);
+    border-top: 1px solid var(--seam);
+  }
+  #start {
+    width: 100%;
+    font-family: var(--font-panel);
+    font-size: 16px;
+    font-weight: 600;
+    font-stretch: 87.5%;
+    letter-spacing: 0.06em;
+    color: #23180a;
+    background: linear-gradient(180deg, #ffbe45, #f0a51c);
+    border: 1px solid #b8790a;
+    border-radius: 4px;
+    padding: 12px;
+    box-shadow: 0 2px 14px -6px rgba(255, 176, 32, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+  #start:hover { background: linear-gradient(180deg, #ffcb63, #f8ae23); }
+  #start:active { box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.3); }
+  #start:disabled {
+    color: var(--ink-faint);
+    background: var(--panel-lit);
+    border-color: var(--seam);
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  #error { color: var(--alert); font-size: 12.5px; }
+  #error:not(:empty) { padding-bottom: 2px; }
+
+  /* ── Narrow window ───────────────────────────────────────────────────── */
+
+  @media (max-width: 560px) {
+    :root { --pad: 16px; --indent: 16px; }
+    body.condensed .controls { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M5 9l7 7 7-7"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></symbol>
+  <symbol id="i-folder-add" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 11v6"/><path d="M9 14h6"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 10v5"/><path d="M9.5 12.5L12 15l2.5-2.5"/></symbol>
+  <symbol id="i-preset" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/><path d="M18 16l2 2 3-4"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9"/><path d="M17 7h3"/><path d="M4 12h3"/><path d="M11 12h9"/><path d="M4 17h11"/><path d="M19 17h1"/><path d="M15 5v4"/><path d="M9 10v4"/><path d="M17 15v4"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M7 5v4"/><path d="M7 15v4"/><path d="M17 5v4"/><path d="M17 15v4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 16l5-5 4 4 3-3 6 6"/><path d="M15.5 8.5h.01"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 17l-5.3 2.7 1.1-5.9L3.5 9.7l5.9-.8z"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M6 6l12 12"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M3 5h18v11H3z"/><path d="M9 20h6"/><path d="M12 16v4"/></symbol>
+  <symbol id="i-monitors" viewBox="0 0 24 24"><path d="M2 5h13v9H2z"/><path d="M9 18h5"/><path d="M11 14v4"/><path d="M18 8h4v9h-8v-3"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></symbol>
+  <symbol id="i-layout" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 10h18"/><path d="M11 10v9"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M9 5v14"/><path d="M15 5v14"/><path d="M3 10h18"/><path d="M3 15h18"/></symbol>
+  <symbol id="i-hero" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 5h11v9H3z"/></symbol>
+  <symbol id="i-corner" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 5h8v6H3z"/></symbol>
+  <symbol id="i-columns" viewBox="0 0 24 24"><path d="M4 4v16"/><path d="M10 4v16"/><path d="M20 4v16"/><path d="M6 12h2"/><path d="M12 12h6"/><path d="M12 10l-2 2 2 2"/><path d="M16 10l2 2-2 2"/></symbol>
+  <symbol id="i-rows" viewBox="0 0 24 24"><path d="M4 4h16"/><path d="M4 10h16"/><path d="M4 20h16"/><path d="M12 6v2"/><path d="M12 12h.01"/><path d="M12 14v4"/><path d="M10 16l2 2 2-2"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13l-3-3"/><path d="M20 16H7l3 3"/></symbol>
+  <symbol id="i-plus-square" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M12 8v8"/><path d="M8 12h8"/></symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 6h4l10 12h4"/><path d="M3 18h4l3-3.5"/><path d="M17 4l3 2-3 2"/><path d="M17 16l3 2-3 2"/></symbol>
+  <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.5-5.8"/><path d="M20 3v4h-4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 7v5l3.5 2"/></symbol>
+  <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M6 3h12"/><path d="M6 21h12"/><path d="M7 3c0 5 5 6 5 9s-5 4-5 9"/><path d="M17 3c0 5-5 6-5 9s5 4 5 9"/></symbol>
+  <symbol id="i-timer" viewBox="0 0 24 24"><path d="M12 5a8 8 0 100 16 8 8 0 000-16z"/><path d="M12 9v4l3 1.5"/><path d="M9 2h6"/></symbol>
+  <symbol id="i-portrait" viewBox="0 0 24 24"><path d="M8 3h8v18H8z"/><path d="M13 3h3v18"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></symbol>
+  <symbol id="i-resolution" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M7 9v6h4"/><path d="M14 15V9l3 6V9"/></symbol>
+  <symbol id="i-drift" viewBox="0 0 24 24"><path d="M4 4h6"/><path d="M4 4v6"/><path d="M20 20h-6"/><path d="M20 20v-6"/><path d="M4 4l7 7"/><path d="M20 20l-7-7"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24"><path d="M11 4a7 7 0 100 14 7 7 0 000-14z"/><path d="M16 16l4 4"/><path d="M8 11h6"/><path d="M11 8v6"/></symbol>
+  <symbol id="i-metronome" viewBox="0 0 24 24"><path d="M10 3h4l4 18H6z"/><path d="M6 15h12"/><path d="M14 5l-5 12"/></symbol>
+  <symbol id="i-beat" viewBox="0 0 24 24"><path d="M2 12h4l2-6 3 13 3-9 2 2h6"/></symbol>
+  <symbol id="i-speed" viewBox="0 0 24 24"><path d="M12 19a8 8 0 110-16 8 8 0 010 16z"/><path d="M12 12l4-4"/><path d="M12 19v2"/><path d="M4 12H2"/><path d="M22 12h-2"/></symbol>
+  <symbol id="i-crosshair" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="M12 11a1 1 0 100 2 1 1 0 000-2z"/></symbol>
+  <symbol id="i-scope" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M8 10h8v4H8z"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9.5a3.5 3.5 0 010 5"/><path d="M19.5 7a7 7 0 010 10"/></symbol>
+  <symbol id="i-level" viewBox="0 0 24 24"><path d="M5 16V9"/><path d="M9.5 19V5"/><path d="M14 16V9"/><path d="M18.5 19V5"/><path d="M3 12.5h18"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a9 9 0 1116 0"/><path d="M12 18l4-6"/></symbol>
+  <symbol id="i-limiter" viewBox="0 0 24 24"><path d="M3 8h18"/><path d="M5 12v5"/><path d="M9 12v3"/><path d="M13 12v6"/><path d="M17 12v4"/><path d="M21 12v2"/></symbol>
+  <symbol id="i-pan" viewBox="0 0 24 24"><path d="M12 4v16"/><path d="M7 8L3 12l4 4"/><path d="M17 8l4 4-4 4"/><path d="M3 12h5"/><path d="M16 12h5"/></symbol>
+  <symbol id="i-width" viewBox="0 0 24 24"><path d="M3 12h18"/><path d="M6 9l-3 3 3 3"/><path d="M18 9l3 3-3 3"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 7h4l1.5-2h7L17 7h4v12H3z"/><path d="M12 16a3.5 3.5 0 100-7 3.5 3.5 0 000 7z"/></symbol>
+  <symbol id="i-record" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 4a3 3 0 013 3v5a3 3 0 01-6 0V7a3 3 0 013-3z"/><path d="M6 11a6 6 0 0012 0"/><path d="M12 17v4"/><path d="M9 21h6"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><path d="M9 18a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"/><path d="M20 16a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"/></symbol>
+  <symbol id="i-pattern" viewBox="0 0 24 24"><path d="M12 12a3 3 0 100-3"/><path d="M12 12a5 5 0 10-4-5"/><path d="M12 12a8 8 0 10-6-7"/></symbol>
+  <symbol id="i-cycle" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0114-5"/><path d="M20 12a8 8 0 01-14 5"/><path d="M18 3v4h-4"/><path d="M6 21v-4h4"/></symbol>
+  <symbol id="i-opacity" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 3v18a9 9 0 000-18z"/></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 6V4h16v2"/><path d="M12 4v16"/><path d="M9 20h6"/></symbol>
+  <symbol id="i-flash" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></symbol>
+  <symbol id="i-quote" viewBox="0 0 24 24"><path d="M5 15V9h5v6H5zm0 0c0 3 1 4 3 5"/><path d="M14 15V9h5v6h-5zm0 0c0 3 1 4 3 5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6"/><path d="M9 17h4"/></symbol>
+  <symbol id="i-speech" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/></symbol>
+  <symbol id="i-breath" viewBox="0 0 24 24"><path d="M3 8h11a3 3 0 10-3-3"/><path d="M3 12h15a3 3 0 11-3 3"/><path d="M3 16h9a2.5 2.5 0 112.5 2.5"/></symbol>
+  <symbol id="i-in" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 8v8"/><path d="M8.5 12.5L12 16l3.5-3.5"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 16V8"/><path d="M8.5 11.5L12 8l3.5 3.5"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M10 9v6"/><path d="M14 9v6"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V10a6 6 0 1112 0v6l2 3H4z"/><path d="M10 22h4"/></symbol>
+  <symbol id="i-goal" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z"/><path d="M12 11a1 1 0 100 2 1 1 0 000-2z"/></symbol>
+  <symbol id="i-countdown" viewBox="0 0 24 24"><path d="M12 6a8 8 0 108 8"/><path d="M12 6V2m-3 0h6"/><path d="M12 10v4.5l3 1.5"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 01-10 0z"/><path d="M7 6H4v2a3 3 0 003 3"/><path d="M17 6h3v2a3 3 0 01-3 3"/><path d="M10 17h4"/><path d="M12 14v3"/><path d="M8 21h8"/></symbol>
+  <symbol id="i-ramp" viewBox="0 0 24 24"><path d="M4 20L20 5"/><path d="M20 5v7"/><path d="M20 5h-7"/><path d="M4 20h16"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M4 20V9"/><path d="M9 20V5"/><path d="M14 20v-8"/><path d="M19 20V8"/><path d="M3 20h18"/></symbol>
+  <symbol id="i-keys" viewBox="0 0 24 24"><path d="M3 6h18v12H3z"/><path d="M7 10h.01"/><path d="M11 10h.01"/><path d="M15 10h.01"/><path d="M18 10h.01"/><path d="M7 14h10"/></symbol>
+  <symbol id="i-quality" viewBox="0 0 24 24"><path d="M4 18V6l8 5 8-5v12"/><path d="M4 18h16"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14a8.5 8.5 0 01-10.5-11A9 9 0 1020 14z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><path d="M12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/></symbol>
+  </svg>
+  <header class="masthead">
+    <h1>GoonTiles</h1>
+    <div class="mast-right">
+      <p class="displays" id="displays"></p>
+      <div class="density" role="group" aria-label="Detail level">
+        <button type="button" id="viewDetailed" class="density-btn">Detailed</button>
+        <button type="button" id="viewCondensed" class="density-btn">Condensed</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Jump to a section">
+    <button type="button" class="toc-btn" data-target="m-folders" title="Folders" aria-label="Folders"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-presets" title="Presets" aria-label="Presets"><svg class="icon" aria-hidden="true"><use href="#i-preset"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-queue" title="Queue" aria-label="Queue"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-screens" title="Screens" aria-label="Screens"><svg class="icon" aria-hidden="true"><use href="#i-monitors"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-layout" title="Layout" aria-label="Layout"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-audio" title="Audio" aria-label="Audio"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-camera" title="Camera" aria-label="Camera"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-hypno" title="Hypno effects" aria-label="Hypno effects"><svg class="icon" aria-hidden="true"><use href="#i-pattern"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-breathing" title="Poppers Training" aria-label="Poppers Training"><svg class="icon" aria-hidden="true"><use href="#i-breath"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-goal" title="Bate goal" aria-label="Bate goal"><svg class="icon" aria-hidden="true"><use href="#i-goal"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-history" title="History &amp; O-count" aria-label="History &amp; O-count"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg></button>
+    <button type="button" class="toc-btn" data-target="m-keys" title="Keyboard shortcuts" aria-label="Keyboard shortcuts"><svg class="icon" aria-hidden="true"><use href="#i-keys"/></svg></button>
+    <span class="toc-here" id="tocHere"></span>
+  </nav>
+
+  <section class="module" id="m-folders">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-folders">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-folder"/></svg><span class="mod-name">Folders</span>
+        <span class="summary" id="s-folders"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-folders" hidden>
+      <p class="sub">Every folder the wall draws from. Each one can serve clips, stills, or both — and can be preferred, avoided, or tied to one screen. Save the whole list as a folder set to switch libraries in one step.</p>
+      <div class="preset-row">
+        <select id="folderSetSelect"><option value="">— none —</option></select>
+        <button id="saveFolderSet">Save</button>
+        <button id="saveFolderSetAs">Save as…</button>
+        <button id="deleteFolderSet">Delete</button>
+      </div>
+      <div class="hint" id="folderSetInfo"></div>
+      <ul id="folderList"></ul>
+      <div class="folder-actions">
+        <button class="btn-add" id="addFolder"><svg class="icon" aria-hidden="true"><use href="#i-folder-add"/></svg>Add folder</button>
+        <button class="btn-add btn-clear" id="clearFolders"><svg class="icon" aria-hidden="true"><use href="#i-ban"/></svg><span id="clearFoldersLabel">Clear all folders</span></button>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-presets">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-presets">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-preset"/></svg><span class="mod-name">Presets</span>
+        <span class="summary" id="s-presets"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-presets" hidden>
+      <p class="sub">Switch the whole setup in one step. A preset covers the layout, overlays and every other setting; your folders live in folder sets, up in the Folders section, so a preset never touches them.</p>
+      <div class="preset-row">
+        <select id="presetSelect"><option value="">— none —</option></select>
+        <button id="savePreset">Save</button>
+        <button id="savePresetAs">Save as…</button>
+        <button id="deletePreset">Delete</button>
+      </div>
+      <div class="hint" id="presetInfo"></div>
+    </div>
+  </section>
+
+  <section class="module" id="m-queue">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-queue">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-sliders"/></svg><span class="mod-name">Queue</span>
+        <span class="summary" id="s-queue"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-queue" hidden>
+      <div class="group">
+        <h3>What plays</h3>
+      <div class="opt">
+        <label class="opt-label" for="skipSeconds"><svg class="icon" aria-hidden="true"><use href="#i-drift"/></svg><span class="opt-text"><span class="opt-name">Skip start of each video</span><span class="hint">Jump past intros and static openings</span></span></label>
+        <div class="ctl"><input type="number" id="skipSeconds" min="0" max="600" step="1"> <span class="unit">sec</span></div>
+      </div>
+      <div class="opt stack">
+        <label class="opt-label" for="minLength"><svg class="icon" aria-hidden="true"><use href="#i-hourglass"/></svg><span class="opt-text"><span class="opt-name">Clip length</span><span class="hint">Only load clips lasting between these two</span></span></label>
+        <div class="ctl"><div class="range-row"><span class="range-label">Min</span><input type="range" id="minLength" min="0" max="600" step="5"><span class="range-val" id="minLengthVal">any</span></div><div class="range-row"><span class="range-label">Max</span><input type="range" id="maxLength" min="0" max="600" step="5"><span class="range-val" id="maxLengthVal">∞</span></div></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="orientation"><svg class="icon" aria-hidden="true"><use href="#i-portrait"/></svg><span class="opt-text"><span class="opt-name">Clip shape</span><span class="hint">Only play videos of this orientation</span></span></label>
+        <div class="ctl"><select id="orientation"><option value="any">Any</option><option value="vertical">Vertical only</option><option value="horizontal">Horizontal only</option></select></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="qualityFilter"><svg class="icon" aria-hidden="true"><use href="#i-filter"/></svg><span class="opt-text"><span class="opt-name">Filter by quality</span><span class="hint">Skip low-resolution clips</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="qualityFilter"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="minHeight"><svg class="icon" aria-hidden="true"><use href="#i-resolution"/></svg><span class="opt-text"><span class="opt-name">Minimum resolution</span><span class="hint">Measured on the clip's shorter side, so portrait footage is judged fairly</span></span></label>
+        <div class="ctl"><select id="minHeight"><option value="360">360p+</option><option value="480">480p+</option><option value="720">720p+</option><option value="1080">1080p+</option></select></div>
+      </div>
+      </div>
+      <div class="group">
+        <h3>Order</h3>
+      <div class="opt">
+        <label class="opt-label" for="shuffle"><svg class="icon" aria-hidden="true"><use href="#i-shuffle"/></svg><span class="opt-text"><span class="opt-name">Shuffle order</span><span class="hint">Randomize playback order</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="shuffle"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="folderRoundRobin"><svg class="icon" aria-hidden="true"><use href="#i-rotate"/></svg><span class="opt-text"><span class="opt-name">Deal folders in turn</span><span class="hint">One clip per folder in rotation, so neighbouring tiles come from different folders</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="folderRoundRobin"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="cooldownMinutes"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span class="opt-text"><span class="opt-name">Repeat cooldown</span><span class="hint">Don't show a clip again for this long — ignored if nothing else is left (0 = off)</span></span></label>
+        <div class="ctl"><input type="number" id="cooldownMinutes" min="0" max="600" step="5"> <span class="unit">min</span></div>
+      </div>
+      </div>
+      <div class="group">
+        <h3>Still images</h3>
+      <div class="opt">
+        <label class="opt-label" for="imagesEnabled"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span class="opt-text"><span class="opt-name">Include images</span><span class="hint">Mix stills in among the clips, from the folders marked as image sources</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="imagesEnabled"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="imageSeconds"><svg class="icon" aria-hidden="true"><use href="#i-timer"/></svg><span class="opt-text"><span class="opt-name">Hold each image</span><span class="hint">How long a still stays before the tile moves on</span></span></label>
+        <div class="ctl"><input type="number" id="imageSeconds" min="1" max="600" step="1"> <span class="unit">sec</span></div>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-screens">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-screens">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-monitors"/></svg><span class="mod-name">Screens</span>
+        <span class="summary" id="s-screens"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-screens" hidden>
+      <div class="opt">
+        <label class="opt-label" for="spanAll"><svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg><span class="opt-text"><span class="opt-name">Span all screens</span><span class="hint">One window stretched across every monitor (overrides the window count)</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="spanAll"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="windowCount"><svg class="icon" aria-hidden="true"><use href="#i-monitors"/></svg><span class="opt-text"><span class="opt-name">Windows</span><span class="hint">How many player windows (defaults to your screen count)</span></span></label>
+        <div class="ctl"><input type="number" id="windowCount" min="1" max="8" step="1"></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="blankUnused"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="opt-text"><span class="opt-name">Cover unused screens</span><span class="hint">Black out monitors with no player window</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="blankUnused"><span class="slider"></span></label></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-layout">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-layout">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-layout"/></svg><span class="mod-name">Layout</span>
+        <span class="summary" id="s-layout"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-layout" hidden>
+      <div class="opt">
+        <label class="opt-label" for="layoutMode"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg><span class="opt-text"><span class="opt-name">Layout</span><span class="hint">Best fit reflows to suit the clips; a fixed grid always uses the shape you set; centre + surround frames one big tile with a ring of smaller ones</span></span></label>
+        <div class="ctl"><select id="layoutMode"><option value="auto">Best fit</option><option value="grid">Fixed grid</option><option value="center">Centre + surround</option></select></div>
+      </div>
+      <div class="opt gridOpt">
+        <label class="opt-label" for="gridCols"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span class="opt-text"><span class="opt-name">Grid size</span><span class="hint">Columns × rows, always filled</span></span></label>
+        <div class="ctl"><input type="number" id="gridCols" min="1" max="6" step="1" style="width:56px;"> <span class="sep">×</span> <input type="number" id="gridRows" min="1" max="4" step="1" style="width:56px;"></div>
+      </div>
+      <div class="opt gridOpt">
+        <label class="opt-label" for="heroCell"><svg class="icon" aria-hidden="true"><use href="#i-hero"/></svg><span class="opt-text"><span class="opt-name">Hero cell</span><span class="hint">One oversized tile with the rest filling around it</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="heroCell"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt gridOpt">
+        <label class="opt-label" for="heroSpan"><svg class="icon" aria-hidden="true"><use href="#i-corner"/></svg><span class="opt-text"><span class="opt-name">Hero size and corner</span><span class="hint">How many cells it spans, and where it sits</span></span></label>
+        <div class="ctl"><input type="number" id="heroSpan" min="2" max="3" step="1" style="width:56px;"> <select id="heroPosition"><option value="top-left">Top left</option><option value="top-right">Top right</option><option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option><option value="center">Centre</option></select></div>
+      </div>
+      <div class="opt centerOpt">
+        <label class="opt-label" for="centerSize"><svg class="icon" aria-hidden="true"><use href="#i-hero"/></svg><span class="opt-text"><span class="opt-name">Centre size</span><span class="hint">How much of the screen the middle tile takes</span></span></label>
+        <div class="ctl"><input type="range" id="centerSize" min="30" max="80" step="5"> <span class="range-val" id="centerSizeVal"></span></div>
+      </div>
+      <div class="opt centerOpt">
+        <label class="opt-label" for="surroundTiles"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span class="opt-text"><span class="opt-name">Tiles around it</span><span class="hint">How many smaller tiles ring the centre. Portrait clips take the sides, landscape ones the top and bottom</span></span></label>
+        <div class="ctl"><input type="number" id="surroundTiles" min="4" max="12" step="1" style="width:56px;"></div>
+      </div>
+      <div class="opt autoOpt">
+        <label class="opt-label" for="minCols"><svg class="icon" aria-hidden="true"><use href="#i-columns"/></svg><span class="opt-text"><span class="opt-name">Columns</span><span class="hint">Fewest and most tiles across the screen</span></span></label>
+        <div class="ctl"><input type="number" id="minCols" min="1" max="4" step="1" style="width:56px;"> <span class="sep">–</span> <input type="number" id="maxCols" min="1" max="4" step="1" style="width:56px;"></div>
+      </div>
+      <div class="opt autoOpt">
+        <label class="opt-label" for="minRows"><svg class="icon" aria-hidden="true"><use href="#i-rows"/></svg><span class="opt-text"><span class="opt-name">Rows</span><span class="hint">Fewest and most tiles stacked vertically</span></span></label>
+        <div class="ctl"><input type="number" id="minRows" min="1" max="4" step="1" style="width:56px;"> <span class="sep">–</span> <input type="number" id="maxRows" min="1" max="4" step="1" style="width:56px;"></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="replaceInPlace"><svg class="icon" aria-hidden="true"><use href="#i-swap"/></svg><span class="opt-text"><span class="opt-name">Replace clips in place</span><span class="hint">A finished clip swaps into its tile instead of re-flowing the wall (always on for a fixed grid)</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="replaceInPlace"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="edgeInserts"><svg class="icon" aria-hidden="true"><use href="#i-plus-square"/></svg><span class="opt-text"><span class="opt-name">Edge insert buttons</span><span class="hint">The ＋ strips down the left and right edges that add a tile</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="edgeInserts"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="tileControls"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg><span class="opt-text"><span class="opt-name">Tile controls</span><span class="hint">The buttons shown over a tile on hover; compact keeps the icons and drops the labels</span></span></label>
+        <div class="ctl"><select id="tileControls"><option value="auto">Compact on small tiles</option><option value="full">Always full</option><option value="compact">Always compact</option></select></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-audio">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-audio">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-volume"/></svg><span class="mod-name">Audio</span>
+        <span class="summary" id="s-audio"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-audio" hidden>
+      <div class="opt">
+        <label class="opt-label" for="volume"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><span class="opt-text"><span class="opt-name">Master volume</span><span class="hint">Volume of the video tiles (↑ / ↓ during playback)</span></span></label>
+        <div class="ctl"><input type="range" id="volume" min="0" max="100" step="1"> <span class="range-val" id="volumeVal"></span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="normalizeAudio"><svg class="icon" aria-hidden="true"><use href="#i-level"/></svg><span class="opt-text"><span class="opt-name">Auto-level clips</span><span class="hint">Trim loud clips and lift quiet ones toward a common loudness</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="normalizeAudio"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="normalizeTarget"><svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg><span class="opt-text"><span class="opt-name">Target loudness</span><span class="hint">How loud auto-leveling aims — turn it down if clips sound hot</span></span></label>
+        <div class="ctl"><input type="range" id="normalizeTarget" min="0" max="100" step="5"> <span class="range-val" id="normalizeTargetVal"></span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="limiter"><svg class="icon" aria-hidden="true"><use href="#i-limiter"/></svg><span class="opt-text"><span class="opt-name">Limiter</span><span class="hint">Catch the peaks auto-leveling creates</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="limiter"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="stereoPan"><svg class="icon" aria-hidden="true"><use href="#i-pan"/></svg><span class="opt-text"><span class="opt-name">Position panning</span><span class="hint">Pan each tile to where it sits on the wall</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="stereoPan"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="stereoPanAmount"><svg class="icon" aria-hidden="true"><use href="#i-width"/></svg><span class="opt-text"><span class="opt-name">Panning width</span><span class="hint">How hard the edge tiles pan</span></span></label>
+        <div class="ctl"><input type="range" id="stereoPanAmount" min="0" max="100" step="5"> <span class="range-val" id="stereoPanAmountVal"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-camera" data-lamp="webcamEnabled recordWebcam">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-camera">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-camera"/></svg><span class="mod-name">Camera</span>
+        <span class="summary" id="s-camera"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-camera" hidden>
+      <div class="opt">
+        <label class="opt-label" for="webcamEnabled"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span class="opt-text"><span class="opt-name">Live camera tile</span><span class="hint">Hand one tile to a webcam</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="webcamEnabled"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="webcamScreen"><svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg><span class="opt-text"><span class="opt-name">On screen</span><span class="hint">Which player window hosts it</span></span></label>
+        <div class="ctl"><select id="webcamScreen"></select></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="webcamHero"><svg class="icon" aria-hidden="true"><use href="#i-hero"/></svg><span class="opt-text"><span class="opt-name">Take the lead cell</span><span class="hint">Pin it to the hero cell (or the first cell when there is no hero)</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="webcamHero"><span class="slider"></span></label></div>
+      </div>
+      <div class="group">
+        <h3>Camera recording</h3>
+      <div class="opt">
+        <label class="opt-label" for="recordWebcam"><svg class="icon" aria-hidden="true"><use href="#i-record"/></svg><span class="opt-text"><span class="opt-name">Record camera feed</span><span class="hint">Save the camera tile to its own video file from Start until quit</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="recordWebcam"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="recordBitrate"><svg class="icon" aria-hidden="true"><use href="#i-quality"/></svg><span class="opt-text"><span class="opt-name">Quality</span><span class="hint">Higher looks better and writes bigger files</span></span></label>
+        <div class="ctl"><select id="recordBitrate"><option value="4">Light (4 Mbps)</option><option value="8">Standard (8 Mbps)</option><option value="16">High (16 Mbps)</option><option value="30">Maximum (30 Mbps)</option></select></div>
+      </div>
+      <div class="opt">
+        <div class="opt-label"><svg class="icon" aria-hidden="true"><use href="#i-save"/></svg><span class="opt-text"><span class="opt-name">Save to</span><span class="hint" id="recordFolderInfo"></span></span></div>
+        <div class="ctl"><button id="chooseRecordFolder">Folder…</button> <button id="clearRecordFolder">Default</button></div>
+      </div>
+      <p class="note">Camera recording begins when the wall starts and closes safely when you quit.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-hypno" data-lamp="kenBurns musicEnabled patternFolder hypnoCycle textEnabled narrationFile">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-hypno">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-pattern"/></svg><span class="mod-name">Hypno effects</span>
+        <span class="summary" id="s-hypno"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-hypno" hidden>
+      <div class="group">
+        <h3>Motion</h3>
+      <div class="opt">
+        <label class="opt-label" for="kenBurns"><svg class="icon" aria-hidden="true"><use href="#i-drift"/></svg><span class="opt-text"><span class="opt-name">Hypnotic drift</span><span class="hint">Slow zoom and pan inside each tile</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="kenBurns"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="kenBurnsAmount"><svg class="icon" aria-hidden="true"><use href="#i-zoom"/></svg><span class="opt-text"><span class="opt-name">Drift strength</span><span class="hint">How far the drift travels</span></span></label>
+        <div class="ctl"><input type="range" id="kenBurnsAmount" min="1" max="40" step="1"> <span class="range-val" id="kenBurnsAmountVal"></span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="kenBurnsRotate"><svg class="icon" aria-hidden="true"><use href="#i-rotate"/></svg><span class="opt-text"><span class="opt-name">Drift rotation</span><span class="hint">Degrees the drift sways through — it zooms in a little further to keep the corners covered</span></span></label>
+        <div class="ctl"><input type="range" id="kenBurnsRotate" min="0" max="10" step="1"> <span class="range-val" id="kenBurnsRotateVal"></span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="kenBurnsBeatSync"><svg class="icon" aria-hidden="true"><use href="#i-metronome"/></svg><span class="opt-text"><span class="opt-name">Sync drift to beat</span><span class="hint">Take the sweep length from the music tempo instead of a fixed time</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="kenBurnsBeatSync"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt beatOpt">
+        <label class="opt-label" for="kenBurnsBeats"><svg class="icon" aria-hidden="true"><use href="#i-beat"/></svg><span class="opt-text"><span class="opt-name">Beats per sweep</span><span class="hint">Tiles are staggered by whole beats, so they stay on the grid</span></span></label>
+        <div class="ctl"><input type="number" id="kenBurnsBeats" min="1" max="64" step="1"> <span class="unit">beats</span></div>
+      </div>
+      <div class="opt freeOpt">
+        <label class="opt-label" for="kenBurnsSeconds"><svg class="icon" aria-hidden="true"><use href="#i-speed"/></svg><span class="opt-text"><span class="opt-name">Drift speed</span><span class="hint">Seconds for one sweep — higher is slower</span></span></label>
+        <div class="ctl"><input type="number" id="kenBurnsSeconds" min="5" max="600" step="5"> <span class="unit">sec</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="kenBurnsCenter"><svg class="icon" aria-hidden="true"><use href="#i-crosshair"/></svg><span class="opt-text"><span class="opt-name">Drift focus</span><span class="hint">What the zoom pulls toward</span></span></label>
+        <div class="ctl"><select id="kenBurnsCenter"><option value="random">Random spot (with pan)</option><option value="center">Centre</option><option value="crop">Wherever the tile is reframed to</option></select></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="kenBurnsScope"><svg class="icon" aria-hidden="true"><use href="#i-scope"/></svg><span class="opt-text"><span class="opt-name">Drift scope</span><span class="hint">Each tile on its own, or the whole wall moving as one picture</span></span></label>
+        <div class="ctl"><select id="kenBurnsScope"><option value="tile">Each tile</option><option value="wall">Whole wall</option></select></div>
+      </div>
+      </div>
+      <div class="group">
+        <h3>Music &amp; rhythm</h3>
+      <div class="opt">
+        <label class="opt-label" for="musicEnabled"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg><span class="opt-text"><span class="opt-name">Play music</span><span class="hint">Plays a track and auto-detects its BPM to drive the rhythm</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="musicEnabled"><span class="slider"></span></label></div>
+      </div>
+      <ul id="musicList"></ul>
+      <button class="btn-add" id="chooseMusic"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>Choose track…</button>
+      </div>
+      <div class="group">
+        <h3>Visual patterns</h3>
+      <div class="opt">
+        <div class="opt-label"><svg class="icon" aria-hidden="true"><use href="#i-pattern"/></svg><span class="opt-text"><span class="opt-name">Pattern videos</span><span class="hint" id="patternFolderInfo"></span></span></div>
+        <div class="ctl"><button id="choosePatternFolder">Folder…</button> <button id="clearPatternFolder">Default</button></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="hypnoCycle"><svg class="icon" aria-hidden="true"><use href="#i-cycle"/></svg><span class="opt-text"><span class="opt-name">Auto-cycle patterns</span><span class="hint">Rotate through the clips</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="hypnoCycle"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="hypnoCycleSeconds"><svg class="icon" aria-hidden="true"><use href="#i-timer"/></svg><span class="opt-text"><span class="opt-name">Cycle every</span><span class="hint">Seconds per clip when auto-cycling</span></span></label>
+        <div class="ctl"><input type="number" id="hypnoCycleSeconds" min="4" max="300" step="1"> <span class="unit">sec</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="hypnoOpacity"><svg class="icon" aria-hidden="true"><use href="#i-opacity"/></svg><span class="opt-text"><span class="opt-name">Pattern intensity</span><span class="hint">How visible the pattern overlay is</span></span></label>
+        <div class="ctl"><input type="range" id="hypnoOpacity" min="5" max="80" step="1"> <span class="range-val" id="hypnoOpacityVal"></span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="videoBeatSync"><svg class="icon" aria-hidden="true"><use href="#i-beat"/></svg><span class="opt-text"><span class="opt-name">Snap video changes to beat</span><span class="hint">Re-tiles land on the next beat</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="videoBeatSync"><span class="slider"></span></label></div>
+      </div>
+      </div>
+      <div class="group">
+        <h3>Text overlay</h3>
+      <div class="opt">
+        <label class="opt-label" for="textEnabled"><svg class="icon" aria-hidden="true"><use href="#i-text"/></svg><span class="opt-text"><span class="opt-name">Show commands</span><span class="hint">Big hypnotic prompts over the wall — toggle with X</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="textEnabled"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="textMode"><svg class="icon" aria-hidden="true"><use href="#i-flash"/></svg><span class="opt-text"><span class="opt-name">Flash style</span><span class="hint">How the text appears</span></span></label>
+        <div class="ctl"><select id="textMode"><option value="quarter-flash">Quarter-beat flash</option><option value="beat-flash">Beat flash (big)</option><option value="half-beat">Half-beat hold</option><option value="bar">Bar on/off</option><option value="pulse">Pulse (zoom)</option><option value="fade">Slow fade</option></select></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="hypnoText"><svg class="icon" aria-hidden="true"><use href="#i-quote"/></svg><span class="opt-text"><span class="opt-name">Text</span><span class="hint">Single phrase, used when there is no file</span></span></label>
+        <div class="ctl"><input type="text" id="hypnoText" maxlength="40" style="width:150px;"></div>
+      </div>
+      <div class="opt">
+        <div class="opt-label"><svg class="icon" aria-hidden="true"><use href="#i-file"/></svg><span class="opt-text"><span class="opt-name">Text file</span><span class="hint" id="hypnoLinesInfo"></span></span></div>
+        <div class="ctl"><button id="chooseTextFile">Choose…</button> <button id="clearTextFile">Clear</button></div>
+      </div>
+      <div class="opt">
+        <div class="opt-label"><svg class="icon" aria-hidden="true"><use href="#i-speech"/></svg><span class="opt-text"><span class="opt-name">Affirmation audio</span><span class="hint" id="affirmInfo"></span></span></div>
+        <div class="ctl"><button id="chooseAffirmFolder">Folder…</button> <button id="clearAffirmFolder">Clear</button></div>
+      </div>
+      </div>
+      <div class="group">
+        <h3>Spoken commands</h3>
+      <p class="sub">Layer a voice track over the wall to guide the session and keep attention locked in. Timed words flash as they are spoken, while the rest of the audio ducks underneath.</p>
+      <div class="opt">
+        <div class="opt-label"><svg class="icon" aria-hidden="true"><use href="#i-speech"/></svg><span class="opt-text"><span class="opt-name">Command track</span><span class="hint" id="narrationInfo"></span></span></div>
+        <div class="ctl"><button id="chooseNarration">Choose…</button> <button id="clearNarration">Clear</button></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="narrationText"><svg class="icon" aria-hidden="true"><use href="#i-flash"/></svg><span class="opt-text"><span class="opt-name">Flash the words</span><span class="hint">Each word of a line in turn, spread over the time it is spoken</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="narrationText"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="narrationAtStart"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span class="opt-text"><span class="opt-name">Play at session start</span><span class="hint">Once, as the wall comes up</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="narrationAtStart"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="narrationBeforeBreathing"><svg class="icon" aria-hidden="true"><use href="#i-breath"/></svg><span class="opt-text"><span class="opt-name">Lead into Poppers Training</span><span class="hint">Timed so the last word lands as the countdown reaches zero</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="narrationBeforeBreathing"><span class="slider"></span></label></div>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-breathing" data-lamp="breathingEnabled">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-breathing">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-breath"/></svg><span class="mod-name">Poppers Training</span>
+        <span class="summary" id="s-breathing"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-breathing" hidden>
+      <div class="opt">
+        <label class="opt-label" for="breathingEnabled"><svg class="icon" aria-hidden="true"><use href="#i-breath"/></svg><span class="opt-text"><span class="opt-name">Enable Poppers Training</span><span class="hint">Timed inhale, hold, and exhale cycles over the wall</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="breathingEnabled"><span class="slider"></span></label></div>
+      </div>
+      <div class="group">
+        <h3>Timing</h3>
+      <div class="opt">
+        <label class="opt-label" for="breathingIntervalMin"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span class="opt-text"><span class="opt-name">Minutes between rounds</span><span class="hint">Countdown length before each training round</span></span></label>
+        <div class="ctl"><input type="number" id="breathingIntervalMin" min="1" max="240" step="1"> <span class="unit">min</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="breathsPerExercise"><svg class="icon" aria-hidden="true"><use href="#i-cycle"/></svg><span class="opt-text"><span class="opt-name">Cycles per round</span><span class="hint">How many inhale, hold, and exhale cycles</span></span></label>
+        <div class="ctl"><input type="number" id="breathsPerExercise" min="1" max="30" step="1"></div>
+      </div>
+      </div>
+      <div class="group">
+        <h3>One breath</h3>
+      <div class="opt">
+        <label class="opt-label" for="inhaleSeconds"><svg class="icon" aria-hidden="true"><use href="#i-in"/></svg><span class="opt-text"><span class="opt-name">Inhale</span><span class="hint">Seconds breathing in</span></span></label>
+        <div class="ctl"><input type="number" id="inhaleSeconds" min="0" max="30" step="1"> <span class="unit">sec</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="holdSeconds"><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span class="opt-text"><span class="opt-name">Hold</span><span class="hint">Seconds holding after the inhale</span></span></label>
+        <div class="ctl"><input type="number" id="holdSeconds" min="0" max="30" step="1"> <span class="unit">sec</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="exhaleSeconds"><svg class="icon" aria-hidden="true"><use href="#i-out"/></svg><span class="opt-text"><span class="opt-name">Exhale</span><span class="hint">Seconds breathing out</span></span></label>
+        <div class="ctl"><input type="number" id="exhaleSeconds" min="0" max="30" step="1"> <span class="unit">sec</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="holdAfterSeconds"><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span class="opt-text"><span class="opt-name">Hold after exhale</span><span class="hint">Optional pause before the next breath</span></span></label>
+        <div class="ctl"><input type="number" id="holdAfterSeconds" min="0" max="30" step="1"> <span class="unit">sec</span></div>
+      </div>
+      </div>
+      <div class="group">
+        <h3>Cues</h3>
+      <div class="opt">
+        <label class="opt-label" for="breathingSound"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span class="opt-text"><span class="opt-name">Sound cues</span><span class="hint">Soft tones marking each phase</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="breathingSound"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="breathingBeatSync"><svg class="icon" aria-hidden="true"><use href="#i-metronome"/></svg><span class="opt-text"><span class="opt-name">Sync to tempo</span><span class="hint">Count the phase numbers in beats and start on a beat</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="breathingBeatSync"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="poppersBrand"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span class="opt-text"><span class="opt-name">Poppers bottle</span><span class="hint" id="poppersBrandInfo">The bottle fills as the next round approaches</span></span></label>
+        <div class="ctl">
+          <select id="poppersBrand">
+            <option value="rush">Rush</option>
+            <option value="jungle-juice">Jungle Juice</option>
+            <option value="amsterdam">Amsterdam</option>
+            <option value="blue-boy">Blue Boy</option>
+            <option value="hardware">Hardware</option>
+            <option value="locker-room">Locker Room</option>
+            <option value="english-royale">English Royale</option>
+          </select>
+        </div>
+      </div>
+      <p class="note">Add matching PNG files to the <code>poppers</code> folder to unlock more bottles.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-goal" data-lamp="goalEnabled">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-goal">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-goal"/></svg><span class="mod-name">Bate goal</span>
+        <span class="summary" id="s-goal"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-goal" hidden>
+      <div class="opt">
+        <label class="opt-label" for="goalEnabled"><svg class="icon" aria-hidden="true"><use href="#i-goal"/></svg><span class="opt-text"><span class="opt-name">Bate timer</span><span class="hint">Encourages bating past your personal best</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="goalEnabled"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="goalMinutes"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span class="opt-text"><span class="opt-name">Goal length</span><span class="hint">Target in minutes (0 = beat your personal best)</span></span></label>
+        <div class="ctl"><input type="number" id="goalMinutes" min="0" max="240" step="1"> <span class="unit">min</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="goalCountdown"><svg class="icon" aria-hidden="true"><use href="#i-countdown"/></svg><span class="opt-text"><span class="opt-name">10-second countdown</span><span class="hint">Big count from 10 just before reaching the target</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="goalCountdown"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <div class="opt-label"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span class="opt-text"><span class="opt-name">Countdown sound</span><span class="hint" id="goalSoundInfo"></span></span></div>
+        <div class="ctl"><button id="chooseGoalSound">Sound…</button> <button id="clearGoalSound">Clear</button></div>
+      </div>
+      <div class="opt">
+        <div class="opt-label"><svg class="icon" aria-hidden="true"><use href="#i-trophy"/></svg><span class="opt-text"><span class="opt-name">Personal best</span><span class="hint" id="bestInfo"></span></span></div>
+        <div class="ctl"><button id="resetBest">Reset</button></div>
+      </div>
+      <div class="group">
+        <h3>Progressive intensity</h3>
+      <div class="opt">
+        <label class="opt-label" for="progressiveEnabled"><svg class="icon" aria-hidden="true"><use href="#i-ramp"/></svg><span class="opt-text"><span class="opt-name">Build up over the session</span><span class="hint">Start small and ramp to the full settings</span></span></label>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="progressiveEnabled"><span class="slider"></span></label></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="progressiveMinutes"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span class="opt-text"><span class="opt-name">Ramp over</span><span class="hint">Minutes to reach the full tile count and pattern strength</span></span></label>
+        <div class="ctl"><input type="number" id="progressiveMinutes" min="1" max="240" step="1"> <span class="unit">min</span></div>
+      </div>
+      <div class="opt">
+        <label class="opt-label" for="progressiveStartTiles"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span class="opt-text"><span class="opt-name">Starting tiles</span><span class="hint">How many tiles the session opens with</span></span></label>
+        <div class="ctl"><input type="number" id="progressiveStartTiles" min="1" max="8" step="1"></div>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module" id="m-history">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-history">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-history"/></svg><span class="mod-name">History &amp; O-count</span>
+        <span class="summary" id="s-history"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-history" hidden>
+      <div class="group">
+        <h3>Sessions</h3>
+      <div id="historyStats"></div>
+      <div id="historyGraph"></div>
+      </div>
+      <div class="group">
+        <h3>Videos O'd to</h3>
+        <div class="history-list" id="oVideoList"></div>
+      </div>
+      <div class="group">
+        <h3>O history</h3>
+        <div class="history-list" id="climaxHistoryList"></div>
+      </div>
+      <div class="group">
+        <h3>Recently shown videos</h3>
+        <div class="history-list" id="videoHistoryList"></div>
+      </div>
+      <button class="btn-add" id="clearHistory"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg>Clear all history</button>
+    </div>
+  </section>
+
+  <section class="module" id="m-keys">
+    <h2 class="rail">
+      <button type="button" class="rail-btn" aria-expanded="false" aria-controls="c-keys">
+        <svg class="icon mod-icon" aria-hidden="true"><use href="#i-keys"/></svg><span class="mod-name">Keyboard shortcuts</span>
+        <span class="summary" id="s-keys"></span><span class="chev"><svg class="icon chev-shut" aria-hidden="true"><use href="#i-chev"/></svg><svg class="icon chev-open" aria-hidden="true"><use href="#i-chev-down"/></svg></span>
+      </button>
+    </h2>
+    <div class="controls" id="c-keys" hidden>
+      <div class="keys">
+        <div class="combo"><kbd>N</kbd><i>/</i><kbd>→</kbd></div> <span class="desc">Skip to the next videos</span>
+        <div class="combo"><kbd>Space</kbd></div> <span class="desc">Pause and resume everything</span>
+        <div class="combo"><kbd>M</kbd></div> <span class="desc">Mute and unmute</span>
+        <div class="combo"><kbd>R</kbd></div> <span class="desc">Reshuffle the queue</span>
+        <div class="combo"><kbd>C</kbd></div> <span class="desc">Open this settings window</span>
+        <div class="combo"><kbd>V</kbd></div> <span class="desc">Show the rhythm indicator</span>
+        <div class="combo"><kbd>T</kbd></div> <span class="desc">Tap the tempo</span>
+        <div class="combo"><kbd>H</kbd></div> <span class="desc">Show the hypnosis pattern</span>
+        <div class="combo"><kbd>P</kbd></div> <span class="desc">Change the hypnosis pattern</span>
+        <div class="combo"><kbd>X</kbd></div> <span class="desc">Show the text overlay</span>
+        <div class="combo"><kbd>O</kbd></div> <span class="desc">Log an O for every video currently on the wall</span>
+        <div class="combo"><kbd>Q</kbd><i>/</i><kbd>Esc</kbd></div> <span class="desc">Quit</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <div id="error"></div>
+
+  <dialog id="nameDialog">
+    <form method="dialog" id="nameForm">
+      <label for="nameInput" id="nameLabel">Name</label>
+      <input type="text" id="nameInput" maxlength="60" autocomplete="off" spellcheck="false">
+      <div class="dialog-row">
+        <button type="button" id="nameCancel">Cancel</button>
+        <button type="submit" id="nameOk" value="ok">Save</button>
+      </div>
+    </form>
+  </dialog>
+    <button id="start">Start ▶</button>
+  </div>
+
+<script src="controls.js"></script>
+</body>
+</html>
