@@ -1,0 +1,63 @@
+{
+  "name": "goontiles",
+  "version": "1.0.0",
+  "description": "A local multi-monitor video wall with hypno effects, Poppers Training, camera recording, and playback history.",
+  "main": "main.js",
+  "scripts": {
+    "start": "node launch.js",
+    "dist": "electron-builder --win",
+    "build-exe": "electron-packager . \"GoonTiles\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=\"(^/dist|^/.claude|debug.log|^/.git)\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "goobercub",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goobercub/goontile.git"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@electron/packager": "^20.0.1",
+    "electron": "^42.5.0",
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^3.0.1"
+  },
+  "build": {
+    "appId": "com.goobercub.goontiles",
+    "productName": "GoonTiles",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "launch.js",
+      "logger.js",
+      "preload.js",
+      "layout.js",
+      "renderer.html",
+      "renderer.js",
+      "audio.html",
+      "audio.js",
+      "prober.html",
+      "prober.js",
+      "prober-preload.js",
+      "controls.html",
+      "controls.js",
+      "controls-preload.js",
+      "blank.html",
+      "build/**/*",
+      "fonts/**/*",
+      "patterns/**/*",
+      "poppers/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "GoonTiles.exe"
+    }
+  }
+}

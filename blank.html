@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title></title>
+<style>
+  html, body { margin: 0; width: 100vw; height: 100vh; background: #000; overflow: hidden; cursor: none; }
+</style>
+</head>
+<body>
+<script>
+  // Keep quit / settings shortcuts working even when a blank screen has focus.
+  document.addEventListener('keydown', (e) => {
+    switch (e.key) {
+      case 'Escape':
+      case 'q':
+      case 'Q':
+        window.tiler.quit();
+        break;
+      case 'c':
+      case 'C':
+        window.tiler.openControls();
+        break;
+      default:
+        break;
+    }
+  });
+</script>
+</body>
+</html>

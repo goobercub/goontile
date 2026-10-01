@@ -1,0 +1,13 @@
+node_modules/
+dist/
+debug.log
+config.json
+config.json.*
+music-position.json
+.env
+.env.*
+.claude/
+.copilot/
+*.tmp
+*.bak
+

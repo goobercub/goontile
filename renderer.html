@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GoonTiles</title>
+<style>
+  @font-face {
+    font-family: 'Bitcount Single';
+    font-style: normal;
+    font-weight: 400;
+    src: url('fonts/bitcount-single.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Monument Extended';
+    font-style: normal;
+    font-weight: 800;
+    src: url('fonts/MonumentExtended-Ultrabold.otf') format('opentype');
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100vw;
+    height: 100vh;
+    background: #000;
+    overflow: hidden;
+    font-family: sans-serif;
+  }
+  /* Hide the cursor only after a few seconds of inactivity */
+  body.idle { cursor: none; }
+
+  #grid {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  .tile {
+    position: absolute;
+    background: #000;
+    overflow: hidden;
+    opacity: 0;
+    /* Smooth reflow: geometry + fade animate together */
+    transition: left 0.5s ease-in-out,
+                top 0.5s ease-in-out,
+                width 0.5s ease-in-out,
+                height 0.5s ease-in-out,
+                opacity 0.45s ease-in-out;
+    will-change: left, top, width, height, opacity;
+  }
+  .tile.visible { opacity: 1; }
+
+  .tile video,
+  .tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover; /* crop to fill — no black bars */
+    display: block;
+    transition: opacity 0.25s ease-in-out;
+  }
+  /* Skip / auto-advance swaps the clip in place: the tile holds its rectangle
+     and only the picture cross-fades. */
+  .tile.swapping video,
+  .tile.swapping img { opacity: 0; }
+
+  /* Ken Burns drift — a slow zoom/pan inside the tile, randomised per tile so a
+     wall of them never pulses in unison. */
+  @keyframes kenburns {
+    from {
+      transform: scale(var(--kb-scale0, 1))
+                 translate(0, 0)
+                 rotate(var(--kb-rot-from, 0deg));
+    }
+    to {
+      transform: scale(var(--kb-scale, 1.06))
+                 translate(var(--kb-x, 0%), var(--kb-y, 0%))
+                 rotate(var(--kb-rot, 0deg));
+    }
+  }
+  .tile video.kb,
+  .tile img.kb,
+  #grid.kb {
+    animation: kenburns var(--kb-dur, 30s) ease-in-out infinite alternate;
+    transform-origin: var(--kb-origin, 50% 50%);
+    will-change: transform;
+  }
+  /* Wall-wide drift moves the whole tile container as one picture. */
+  #grid.kb { overflow: hidden; }
+
+  /* Solo: one tile blown up over the whole window */
+  .tile.solo { z-index: 30; }
+  body.has-solo .tile:not(.solo) { pointer-events: none; }
+
+  /* Dragging a tile onto another to trade their positions */
+  .tile.dragging-tile { opacity: 0.55; z-index: 25; }
+  .tile.drop-target { outline: 4px solid #4f8cff; outline-offset: -4px; }
+
+  /* Hover controls: one instrument strip, not six cards. The strip carries the
+     surface; the buttons on it are bare line icons with a small label. A small
+     tile (or the setting) drops the labels and tightens the strip. */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    background: linear-gradient(rgba(0,0,0,0.12), rgba(0,0,0,0.42));
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    z-index: 5;
+  }
+  .tile:hover .overlay { opacity: 1; }
+  body.idle .overlay { opacity: 0 !important; } /* don't pop controls while cursor is hidden */
+
+  .overlay .strip {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    flex-wrap: wrap; /* six buttons still fit on a narrow column tile */
+    gap: 2px;
+    max-width: 100%;
+    padding: 4px;
+    border-radius: 10px;
+    background: rgba(10,12,18,0.62);
+    border: 1px solid rgba(255,255,255,0.10);
+    backdrop-filter: blur(14px) saturate(130%);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  }
+  .overlay button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 60px;
+    padding: 8px 10px 7px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: rgba(255,255,255,0.92);
+    font-family: Bahnschrift, 'DIN Next', 'Segoe UI', system-ui, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 0.12s ease-in-out, color 0.12s ease-in-out;
+  }
+  .overlay button .icon { display: block; width: 18px; height: 18px; }
+  .overlay button .icon svg,
+  .tile-vol .ico svg {
+    width: 100%; height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .overlay button .label { opacity: 0.72; }
+  .overlay button:hover { background: rgba(255,255,255,0.10); }
+  .overlay button:active { background: rgba(255,255,255,0.16); }
+  .overlay button.active { background: rgba(79,140,255,0.26); color: #b9d0ff; }
+  .overlay button.active .label { opacity: 1; }
+  .overlay button.prefer.on { background: rgba(240,180,41,0.26); color: #ffd97a; }
+  .overlay button.prefer.on .icon svg { fill: currentColor; }
+  .overlay button.avoid.on { background: rgba(210,70,70,0.30); color: #ffb0b0; }
+
+  /* Compact: icons only, a tighter strip, no hint, a slimmer scrubber. */
+  .tile.compact .overlay button { min-width: 0; width: 32px; height: 32px; padding: 0; gap: 0; }
+  .tile.compact .overlay button .label { display: none; }
+  .tile.compact .overlay button .icon { width: 16px; height: 16px; }
+  .tile.compact .overlay-hint { display: none; }
+  .tile.compact .scrubber { padding: 6px 10px; gap: 8px; }
+  .tile.compact .scrubber .time { font-size: 10px; min-width: 26px; }
+  .tile.compact .tile-vol .slider { width: 48px; }
+
+  /* Caption under the strip explaining the tile-level gestures */
+  .overlay-hint {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: 46px;
+    text-align: center;
+    color: rgba(255,255,255,0.5);
+    font-family: Bahnschrift, 'DIN Next', 'Segoe UI', system-ui, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    pointer-events: none;
+  }
+
+  /* Reframe button lives on the strip; click-and-hold + drag to reposition */
+  .overlay button.reframe { cursor: grab; touch-action: none; }
+  .overlay button.reframe.dragging { cursor: grabbing; background: rgba(79,140,255,0.26); color: #b9d0ff; }
+
+  /* Scrubber row (shown on hover, with the overlay): the seek line and the
+     volume line are the same slider, a hairline with a small knob. */
+  .scrubber {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6));
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease-in-out;
+  }
+  .tile:hover .scrubber { opacity: 1; pointer-events: auto; }
+  body.idle .scrubber { opacity: 0 !important; pointer-events: none !important; }
+  .scrubber .time {
+    color: rgba(255,255,255,0.72);
+    font: 500 11px Bahnschrift, 'DIN Next', 'Segoe UI', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    min-width: 32px;
+    text-align: center;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }
+  .scrubber .seek { flex: 1; }
+
+  .slider {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 18px; /* the whole band is the hit area */
+    cursor: pointer;
+    touch-action: none;
+  }
+  .slider .track {
+    position: relative;
+    width: 100%;
+    height: 2px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.28);
+    transition: background 0.12s ease-in-out;
+  }
+  .slider:hover .track, .slider.dragging .track { background: rgba(255,255,255,0.4); }
+  .slider .fill {
+    position: absolute;
+    left: 0; top: 0;
+    height: 100%;
+    width: 0;
+    background: rgba(255,255,255,0.92);
+    border-radius: 1px;
+    pointer-events: none;
+  }
+  .slider .knob {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 10px; height: 10px;
+    margin-left: -5px;
+    transform: translateY(-50%) scale(0.8);
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    pointer-events: none;
+    transition: transform 0.12s ease-in-out;
+  }
+  .slider:hover .knob, .slider.dragging .knob { transform: translateY(-50%) scale(1.15); }
+
+  /* A camera tile that could not open says so rather than sitting black. */
+  .tile.webcam-failed::after {
+    content: 'Camera unavailable';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.5);
+    font: 600 15px 'Segoe UI', system-ui, sans-serif;
+    letter-spacing: 0.04em;
+  }
+
+  /* Folder path of the clip — shown on hover, and kept visible whenever the
+     folder has a priority set, so you can see what you have marked. */
+  .folder-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 4;
+    max-width: calc(100% - 140px); /* leave room for the loop badge opposite */
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(12,14,18,0.78);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #e8eaf0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    pointer-events: none;
+  }
+  .tile:hover .folder-badge,
+  .tile.pref-marked .folder-badge { opacity: 1; }
+  body.idle .tile:not(.pref-marked) .folder-badge { opacity: 0; }
+  .folder-badge.boosted { background: rgba(240,180,41,0.92); border-color: #ffd166; color: #1b1400; }
+  .folder-badge.avoided { background: rgba(210,70,70,0.92); border-color: #ff8f8f; color: #fff; }
+
+  /* Per-tile volume, sharing the scrubber row */
+  .tile-vol { display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.72); }
+  .tile-vol .ico { display: block; width: 14px; height: 14px; }
+  .tile-vol .slider { width: 72px; }
+
+  /* Persistent "looping" badge (shown even when not hovering) */
+  .loop-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 4;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(79,140,255,0.9);
+    color: #fff;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    pointer-events: none;
+  }
+  .tile.looping .loop-badge { opacity: 1; }
+
+  #hud {
+    position: fixed;
+    bottom: 8%;
+    left: 50%;
+    transform: translate(-50%, 8px) scale(0.9);
+    color: #fff;
+    background: rgba(0,0,0,0.55);
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-size: 22px;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease-in-out, transform 0.15s ease-in-out;
+    user-select: none;
+  }
+  #hud.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+  /* Edge bars to insert a video on the left / right */
+  .edge-insert {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 80px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+  }
+  .edge-insert.left  { left: 0;  background: linear-gradient(to right, rgba(0,0,0,0.55), rgba(0,0,0,0)); }
+  .edge-insert.right { right: 0; background: linear-gradient(to left,  rgba(0,0,0,0.55), rgba(0,0,0,0)); }
+  /* Faintly visible when the cursor is active, full on hover */
+  body:not(.idle) .edge-insert { opacity: 0.35; }
+  body:not(.idle) .edge-insert:hover { opacity: 1; }
+  body.idle .edge-insert { opacity: 0 !important; }
+  body.no-edge-inserts .edge-insert { display: none; }
+
+  .edge-insert .ins {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 60px;
+    padding: 10px 6px;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 12px;
+    background: rgba(20,22,28,0.82);
+    color: #fff;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s ease-in-out, transform 0.1s ease-in-out;
+  }
+  .edge-insert .ins:hover { background: rgba(79,140,255,0.92); transform: scale(1.05); }
+  .edge-insert .glyph { font-size: 22px; line-height: 1; }
+
+  /* Breathing countdown ring (subtle, top-center) */
+  #breath-countdown {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    width: 64px;
+    height: 64px;
+    pointer-events: auto;
+    cursor: pointer;
+    user-select: none;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease-in-out, filter 0.15s ease-in-out;
+  }
+  #breath-countdown:hover { transform: translateX(-50%) scale(1.12); filter: brightness(1.2); }
+  /* Image-fill mode: a faint copy behind, a full-opacity copy revealed bottom→top */
+  #breath-countdown.image-mode { width: auto; height: 26vh; cursor: move; }
+  #breath-countdown.image-mode svg,
+  #breath-countdown.image-mode .bc-label { display: none; }
+  #breath-countdown .bc-img { display: none; position: relative; height: 100%; }
+  #breath-countdown.image-mode .bc-img { display: block; }
+  #breath-countdown .bc-img img { display: block; height: 100%; width: auto; pointer-events: none; -webkit-user-drag: none; user-select: none; }
+  #breath-countdown .bc-img-back { opacity: 0.25; }
+  #breath-countdown .bc-img-front { position: absolute; top: 0; left: 0; opacity: 1; clip-path: inset(100% 0 0 0); }
+  #breath-countdown svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg); /* start the fill at 12 o'clock */
+    overflow: visible; /* don't clip the glow at the SVG box edge */
+  }
+  #breath-countdown .bc-track {
+    fill: none;
+    stroke: rgba(255,255,255,0.18);
+    stroke-width: 6;
+  }
+  #breath-countdown .bc-prog {
+    fill: none;
+    stroke: #6aa0ff;
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 276.46; /* 2π·44 */
+    stroke-dashoffset: 276.46;
+    filter: drop-shadow(0 0 4px rgba(79,140,255,0.6));
+  }
+  #breath-countdown .bc-label {
+    position: relative;
+    color: rgba(255,255,255,0.85);
+    font: 600 13px 'Segoe UI', system-ui, sans-serif;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Breathing exercise overlay */
+  #breathing {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background: rgba(8, 10, 14, 0.72);
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+    user-select: none;
+  }
+  #breathing.show { display: flex; opacity: 1; }
+  #breathing .breath-stage {
+    position: relative;
+    width: 46vmin;
+    height: 46vmin;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #breathing .circle {
+    position: absolute;
+    width: 34vmin;
+    height: 34vmin;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 40%, #6aa0ff 0%, #4f8cff 45%, #2f6fe0 100%);
+    box-shadow: 0 0 60px rgba(79,140,255,0.55), inset 0 0 40px rgba(255,255,255,0.15);
+    transform: scale(0.4);
+    transition: transform ease-in-out; /* duration set inline per phase */
+  }
+  #breathing .breath-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg); /* start fill at 12 o'clock */
+    pointer-events: none;
+    overflow: visible; /* don't clip the glow at the SVG box edge */
+  }
+  #breathing .br-track {
+    fill: none;
+    stroke: rgba(255,255,255,0.15);
+    stroke-width: 2.5;
+  }
+  #breathing .br-prog {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-dasharray: 276.46; /* 2π·44 */
+    stroke-dashoffset: 276.46;
+    filter: drop-shadow(0 0 9px rgba(255,255,255,0.85));
+  }
+  #breathing .phase {
+    position: relative;
+    z-index: 3;
+    color: #fff;
+    font: 600 4.5vmin 'Segoe UI', system-ui, sans-serif;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    letter-spacing: 0.5px;
+  }
+  #breathing .count {
+    margin-top: 5vmin;
+    color: rgba(255,255,255,0.7);
+    font: 500 2.4vmin 'Segoe UI', system-ui, sans-serif;
+  }
+  #breathing .skip {
+    position: fixed;
+    bottom: 6vmin;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 22px;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.85);
+    font: 600 14px 'Segoe UI', system-ui, sans-serif;
+    cursor: pointer;
+    transition: background 0.15s ease-in-out;
+  }
+  #breathing .skip:hover { background: rgba(255,255,255,0.18); }
+
+  /* Hypnosis pattern layer — grayscale video, white→transparent via multiply.
+     Blend is on #hypno itself so it composites against the video grid behind it. */
+  #hypno {
+    position: fixed;
+    inset: 0;
+    z-index: 56;
+    display: none;
+    pointer-events: none;
+    mix-blend-mode: multiply;
+  }
+  #hypno.show { display: block; }
+  #hypno video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* Text overlay — its own layer on top of the patterns */
+  #texts {
+    position: fixed;
+    inset: 0;
+    z-index: 58;
+    display: none;
+    pointer-events: none;
+  }
+  #texts.show { display: block; }
+  #texts canvas { display: block; width: 100%; height: 100%; }
+
+  /* Meditation goal timer */
+  #goal { display: none; }
+  #goal.show { display: block; }
+  .goal-readout {
+    position: fixed;
+    top: 16px;
+    left: 22px;
+    z-index: 31;
+    color: rgba(255,255,255,0.55);
+    font: 600 15px 'Segoe UI', system-ui, sans-serif;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    user-select: none;
+    transition: color 0.3s ease-in-out;
+  }
+  .goal-readout .best { color: rgba(255,255,255,0.4); margin-left: 12px; }
+  .goal-readout.beat { color: #79e0a0; }
+  .goal-readout.beat .best { color: #79e0a0; }
+  .goal-countdown {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    z-index: 45;
+    color: #fff;
+    font: 800 26vmin 'Monument Extended', 'Segoe UI', sans-serif;
+    text-shadow: 0 6px 40px rgba(0,0,0,0.7);
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
+    transition: opacity 0.15s ease-in-out, transform 0.15s ease-in-out;
+  }
+  .goal-countdown.show { opacity: 0.9; transform: translate(-50%, -50%) scale(1); }
+
+  /* Rhythm indicator: a dim ball bouncing up/down to the tempo, off to the side */
+  #rhythm {
+    position: fixed;
+    right: 44px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 30;
+    display: none;
+    pointer-events: none;
+    user-select: none;
+  }
+  #rhythm.show { display: block; }
+  #rhythm .bob {
+    position: relative;
+    width: 48px;
+    height: 46vh;
+  }
+  #rhythm .dot {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 46px;
+    height: 46px;
+    margin-left: -23px;
+    border-radius: 50%;
+    background: #000;
+    will-change: transform;
+  }
+</style>
+</head>
+<body>
+<div id="grid"></div>
+
+<div class="edge-insert left">
+  <button class="ins" data-side="left" data-kind="next" title="Insert next video (any size) on the left"><span class="glyph">▭</span><span>＋ Any</span></button>
+  <button class="ins" data-side="left" data-kind="vertical" title="Insert a vertical video on the left"><span class="glyph">▮</span><span>＋ Vert</span></button>
+</div>
+<div class="edge-insert right">
+  <button class="ins" data-side="right" data-kind="next" title="Insert next video (any size) on the right"><span class="glyph">▭</span><span>＋ Any</span></button>
+  <button class="ins" data-side="right" data-kind="vertical" title="Insert a vertical video on the right"><span class="glyph">▮</span><span>＋ Vert</span></button>
+</div>
+
+<div id="hypno"><video id="hypnoVideo" muted loop playsinline></video></div>
+<div id="texts"><canvas id="textsCanvas"></canvas></div>
+
+<div id="goal">
+  <div class="goal-readout"></div>
+  <div class="goal-countdown"></div>
+</div>
+
+<div id="rhythm">
+  <div class="bob"><div class="dot"></div></div>
+</div>
+
+<div id="breath-countdown" title="Start Poppers Training now">
+  <svg viewBox="0 0 100 100">
+    <circle class="bc-track" cx="50" cy="50" r="44"></circle>
+    <circle class="bc-prog" cx="50" cy="50" r="44"></circle>
+  </svg>
+  <span class="bc-label"></span>
+  <div class="bc-img">
+    <img class="bc-img-back" alt="" draggable="false">
+    <img class="bc-img-front" alt="" draggable="false">
+  </div>
+</div>
+<div id="breathing">
+  <div class="breath-stage">
+    <div class="circle"></div>
+    <svg class="breath-ring" viewBox="0 0 100 100">
+      <circle class="br-track" cx="50" cy="50" r="44"></circle>
+      <circle class="br-prog" cx="50" cy="50" r="44"></circle>
+    </svg>
+    <span class="phase">Breathe In</span>
+  </div>
+  <div class="count"></div>
+  <button class="skip" id="breathSkip">Skip ✕</button>
+</div>
+
+<script src="renderer.js"></script>
+</body>
+</html>
